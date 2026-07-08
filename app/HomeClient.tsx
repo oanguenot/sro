@@ -18,23 +18,9 @@ export default function HomeClient() {
     script.onload = () => init();
     document.head.appendChild(script);
 
-    const ROSTER_KEY = 'srobernai_roster';
-
-    const DEFAULT_ATHLETES: Athlete[] = [
-      { nom: 'Emma Anguenot',    actseq: '2747642', initiales: 'EA', color: '#f5a623', cat: 'Cadette', sexe: 'F' },
-      { nom: 'Chloé Greulich',   actseq: '2234044', initiales: 'CG', color: '#22d3ee', cat: 'Cadette', sexe: 'F' },
-      { nom: 'Jessica Greulich', actseq: null,       initiales: 'JG', color: '#f472b6', cat: 'Cadette', sexe: 'F', licence: '2006273' },
-      { nom: 'Zoé Martinache',   actseq: '2438136', initiales: 'ZM', color: '#a78bfa', cat: 'Cadette', sexe: 'F' },
-      { nom: 'Lise Meyer',       actseq: '1767821', initiales: 'LM', color: '#4ade80', cat: '—',       sexe: 'F' },
-      { nom: 'Olivier Anguenot', actseq: null,       initiales: 'OA', color: '#60a5fa', cat: '—',       sexe: 'M', licence: null },
-      { nom: 'William Rudlof',   actseq: null,       initiales: 'WR', color: '#f87171', cat: '—',       sexe: 'M' },
-      { nom: 'Agathe Thomas',    actseq: null,       initiales: 'AT', color: '#c084fc', cat: '—',       sexe: 'F' },
-      { nom: 'Benjamin Laroche', actseq: null,       initiales: 'BL', color: '#818cf8', cat: '—',       sexe: 'M' },
-      { nom: 'Leou Tholosan',    actseq: '2665267',  initiales: 'LT', color: '#34d399', cat: '—',       sexe: 'M' },
-      { nom: 'Steyer Louise',    actseq: '2283902',  initiales: 'SL', color: '#2dd4bf', cat: '—',       sexe: 'F' },
-    ];
-
-    let ATHLETES: Athlete[] = DEFAULT_ATHLETES.map(a => ({ ...a }));
+    // Aucun athlète n'est codé en dur : le roster est chargé depuis la base
+    // (voir fetchRoster / init). Seul l'athlète courant par défaut est fixé.
+    let ATHLETES: Athlete[] = [];
 
     const PALETTE = [
       '#f5a623', // or doré   (38°)
@@ -63,21 +49,55 @@ export default function HomeClient() {
       '#fb7185', // flamant   (349°)
     ];
 
+    // Attribue à chaque athlète une couleur stable de la palette (par ordre).
     function normalizeColors() {
       const used = new Set<string>();
-      ATHLETES.forEach(ath => {
-        // Athlète connu → utilise sa couleur désignée si elle est libre
-        const def = DEFAULT_ATHLETES.find(d =>
-          d.actseq !== null ? d.actseq === ath.actseq : d.nom === ath.nom
-        );
-        if (def && !used.has(def.color)) {
-          ath.color = def.color;
-        } else {
-          // Athlète ajouté (ou couleur déjà prise) → prochaine couleur libre
-          ath.color = PALETTE.find(c => !used.has(c)) ?? PALETTE[used.size % PALETTE.length];
-        }
+      ATHLETES.forEach((ath, i) => {
+        ath.color = PALETTE.find(c => !used.has(c)) ?? PALETTE[i % PALETTE.length];
         used.add(ath.color);
       });
+    }
+
+    // athle.fr renvoie le nom collé ("PrénomNOM") : on réinsère un espace
+    // entre une minuscule et une majuscule pour l'affichage.
+    function formatName(raw: string): string {
+      return (raw || '')
+        .replace(/([a-zà-ÿ])([A-ZÀ-Þ])/g, '$1 $2')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+    function initialsOf(raw: string): string {
+      const words = formatName(raw).split(/\s+/).filter(Boolean);
+      if (!words.length) return '?';
+      const first = words[0][0] ?? '';
+      const last = words.length > 1 ? (words[words.length - 1][0] ?? '') : (words[0][1] ?? '');
+      return (first + last).toUpperCase() || '?';
+    }
+    // Catégorie courte pour l'entête ("MA (M3)/M/FRA" → "MA (M3)").
+    function shortCat(categorie: string): string {
+      return (categorie || '').split('/')[0].trim() || '—';
+    }
+    // Convertit une ligne `athletes` (base) en objet Athlete du roster.
+    function toRosterAthlete(a: { actseq: string; nom: string; categorie: string }): Athlete {
+      return {
+        nom: formatName(a.nom),
+        actseq: a.actseq,
+        initiales: initialsOf(a.nom),
+        color: '',
+        cat: shortCat(a.categorie),
+        sexe: '',
+      };
+    }
+    // Charge le roster depuis la base (aucune donnée codée en dur).
+    async function fetchRoster(): Promise<Athlete[]> {
+      try {
+        const resp = await fetch('/api/athletes');
+        const json = await resp.json();
+        if (json?.ok && Array.isArray(json.athletes)) {
+          return json.athletes.map(toRosterAthlete);
+        }
+      } catch { /* réseau/base indisponible → roster vide */ }
+      return [];
     }
 
     const cache: Record<string, any> = {};
@@ -91,47 +111,27 @@ export default function HomeClient() {
     let yearFilter: number | null = null;
     let currentData: any = null;
 
-    // ---- Persistance du roster (localStorage) -------------------------------
-    function loadRoster(): Athlete[] | null {
-      try {
-        const raw = localStorage.getItem(ROSTER_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed) && parsed.length) {
-            // Migration : mauvais actseq pour Lise Meyer (Ac Centre Alsace → Sr Obernai)
-            const migrated = parsed.map((a: Athlete) =>
-              a.actseq === '3127014' ? { ...a, actseq: '1767821' } : a
-            );
-            return migrated;
-          }
-        }
-      } catch { /* ignore */ }
-      return null;
-    }
-    function saveRoster() {
-      try { localStorage.setItem(ROSTER_KEY, JSON.stringify(ATHLETES)); } catch { /* ignore */ }
-    }
-
     async function init() {
-      const saved = loadRoster();
-      if (saved) {
-        ATHLETES = saved;
-      } else {
-        await resolveActseqs();
-      }
+      // Roster chargé exclusivement depuis la base.
+      ATHLETES = await fetchRoster();
       normalizeColors();
-      saveRoster();
 
-      // Choisit l'athlète courant (fallback si l'athlète par défaut a été supprimé)
+      // Athlète courant par défaut ; sinon le premier du roster.
       if (!ATHLETES.find(a => a.actseq === currentActseq)) {
-        const firstWithActseq = ATHLETES.find(a => a.actseq);
-        currentActseq = firstWithActseq?.actseq ?? '';
+        currentActseq = ATHLETES.find(a => a.actseq)?.actseq ?? '';
       }
 
       buildDropdown();
       updateCurrentHeader(ATHLETES.find(a => a.actseq === currentActseq));
 
-      if (currentActseq) await loadAthlete(currentActseq, false);
+      if (currentActseq) {
+        await loadAthlete(currentActseq, 'db');
+      } else {
+        // Base vide : inviter à rechercher un athlète.
+        document.getElementById('emptyMain')!.style.display = 'flex';
+        document.getElementById('emptyMain')!.querySelector('p')!.textContent =
+          'Aucun athlète en base. Recherche un athlète sur athle.fr pour commencer.';
+      }
       document.getElementById('overlay')!.classList.add('hidden');
     }
 
@@ -291,19 +291,24 @@ export default function HomeClient() {
         return;
       }
 
-      const parts = result.nom.trim().split(/\s+/);
       const newAth: Athlete = {
-        nom: result.nom,
+        nom: formatName(result.nom),
         actseq: result.id,
-        initiales: (parts.map((w: string) => w[0]).join('').toUpperCase()).substring(0, 2) || '?',
+        initiales: initialsOf(result.nom),
         color: randomColor(),
         cat: '—',
-        sexe: result.raw?.sexe || 'M',
+        sexe: result.raw?.sexe || '',
       };
       ATHLETES.push(newAth);
-      saveRoster();
       buildDropdown();
-      await selectAthlete(newAth);
+      // Nouvel athlète issu de la recherche : récupération fraîche depuis athle.fr,
+      // puis stockage en base (c'est le seul point d'entrée « sélection » qui scrape).
+      closeDropdown();
+      updateCurrentHeader(newAth);
+      document.querySelectorAll('.ath-opt').forEach(el =>
+        (el as HTMLElement).classList.toggle('selected', (el as HTMLElement).dataset.actseq === newAth.actseq)
+      );
+      await loadAthlete(newAth.actseq!, 'remote');
     }
 
     function randomColor(): string {
@@ -334,24 +339,6 @@ export default function HomeClient() {
       };
       const c1 = hslToHex((h + 28) % 360, Math.min(1, s * 0.85), Math.min(0.92, l + 0.2));
       return `linear-gradient(135deg,${c1},${color})`;
-    }
-
-    async function resolveActseqs() {
-      const missing = ATHLETES.filter(a => !a.actseq);
-      if (!missing.length) return;
-      document.getElementById('omsg')!.textContent = 'Recherche des profils athle.fr…';
-      for (const ath of missing) {
-        try {
-          const lastName = ath.nom.split(' ').pop()!;
-          const resp = await fetch(`/api/search?q=${encodeURIComponent(lastName)}`);
-          const results: Array<{ id: string; nom: string }> = await resp.json();
-          const match = results.find(r =>
-            r.nom.toLowerCase().includes(ath.nom.split(' ')[0].toLowerCase()) &&
-            r.nom.toLowerCase().includes(ath.nom.split(' ').pop()!.toLowerCase())
-          );
-          if (match) ath.actseq = match.id;
-        } catch { /* silencieux */ }
-      }
     }
 
     function hexToHue(hex: string): number {
@@ -419,7 +406,6 @@ export default function HomeClient() {
       }
       const wasCurrent = ath.actseq === currentActseq;
       ATHLETES = ATHLETES.filter(a => a !== ath);
-      saveRoster();
       buildDropdown();
 
       if (wasCurrent) {
@@ -473,7 +459,8 @@ export default function HomeClient() {
       document.querySelectorAll('.ath-opt').forEach(el =>
         (el as HTMLElement).classList.toggle('selected', (el as HTMLElement).dataset.actseq === ath.actseq)
       );
-      await loadAthlete(ath.actseq!, false);
+      // Simple changement d'athlète : lecture en base uniquement, jamais de scraping.
+      await loadAthlete(ath.actseq!, 'db');
     }
 
     function setStatus(type: string, msg: string) {
@@ -481,28 +468,46 @@ export default function HomeClient() {
       document.getElementById('stxt')!.textContent = msg;
     }
 
-    async function loadAthlete(actseq: string, forceRefresh: boolean) {
+    // mode 'db'     : lecture stricte en base (changement d'athlète). Ne scrape jamais athle.fr.
+    // mode 'remote' : récupération fraîche depuis athle.fr (nouvel athlète recherché / synchro).
+    async function loadAthlete(actseq: string, mode: 'db' | 'remote' = 'db') {
       currentActseq = actseq;
       currentDisc = null;
       yearFilter = null;
 
-      if (cache[actseq] && !forceRefresh) {
+      // Cache mémoire : réutilisable pour un simple changement, jamais pour une synchro.
+      if (cache[actseq] && mode === 'db') {
         renderAll(cache[actseq]);
         setStatus('ok', 'Données en cache · ' + cache[actseq]._loadedAt);
         return;
       }
 
+      const remote = mode === 'remote';
       const btn = document.getElementById('refreshBtn') as HTMLButtonElement;
       btn.disabled = true;
       document.getElementById('overlay')!.classList.remove('hidden');
-      document.getElementById('omsg')!.textContent = 'Chargement depuis athle.fr…';
-      setStatus('loading', 'Connexion à athle.fr…');
+      document.getElementById('omsg')!.textContent =
+        remote ? 'Chargement depuis athle.fr…' : 'Chargement depuis la base…';
+      setStatus('loading', remote ? 'Connexion à athle.fr…' : 'Lecture de la base…');
       document.getElementById('discList')!.innerHTML = '';
       document.getElementById('chartArea')!.style.display = 'none';
       document.getElementById('emptyMain')!.style.display = 'flex';
 
       try {
-        const resp = await fetch(`/api/athlete/${actseq}${forceRefresh ? '?refresh=1' : ''}`);
+        const resp = await fetch(`/api/athlete/${actseq}${remote ? '?refresh=1' : '?source=db'}`);
+
+        // Changement d'athlète non synchronisé : pas de scraping, on invite à synchroniser.
+        if (!remote && resp.status === 404) {
+          const ath = ATHLETES.find(a => a.actseq === actseq);
+          document.getElementById('emptyMain')!.style.display = 'flex';
+          document.getElementById('emptyMain')!.querySelector('p')!.textContent =
+            `Aucune donnée en base pour ${ath?.nom ?? 'cet athlète'}. Clique sur « Actualiser » pour le synchroniser depuis athle.fr.`;
+          setStatus('', 'Non synchronisé');
+          btn.disabled = false;
+          document.getElementById('overlay')!.classList.add('hidden');
+          return;
+        }
+
         const json = await resp.json();
         if (!json.ok) throw new Error(json.error || 'Erreur serveur');
         const parsed = json.data;
@@ -512,13 +517,14 @@ export default function HomeClient() {
         parsed._actseq = actseq;
         cache[actseq] = parsed;
         const ath = ATHLETES.find(a => a.actseq === actseq);
-        if (ath && parsed.nom) {
-          document.getElementById('curName')!.textContent = parsed.nom;
+        if (parsed.nom) {
+          document.getElementById('curName')!.textContent = formatName(parsed.nom);
           document.getElementById('curSub')!.textContent =
-            (parsed.categorie || ath.cat) + ' · ' + (parsed.club || 'SR Obernai');
+            (parsed.categorie ? shortCat(parsed.categorie) : ath?.cat || '—') +
+            ' · ' + (parsed.club || 'SR Obernai');
         }
         renderAll(parsed);
-        setStatus('ok', (json.source === 'cache' ? 'Cache local' : 'athle.fr') + ' · ' + parsed._loadedAt);
+        setStatus('ok', (json.source === 'cache' ? 'Base de données' : 'athle.fr') + ' · ' + parsed._loadedAt);
       } catch (e: any) {
         document.getElementById('emptyMain')!.style.display = 'flex';
         document.getElementById('emptyMain')!.querySelector('p')!.textContent =
@@ -972,10 +978,10 @@ export default function HomeClient() {
           <div id="searchResults"></div>
         </div>
         <div className="athlete-select-wrap" id="athleteWrap" onClick={() => (window as any).__toggleDropdown?.()}>
-          <div className="athlete-avatar" id="curAvatar">EA</div>
+          <div className="athlete-avatar" id="curAvatar">—</div>
           <div className="athlete-info">
-            <div className="athlete-name" id="curName">Emma Anguenot</div>
-            <div className="athlete-sub" id="curSub">Cadette · SR Obernai</div>
+            <div className="athlete-name" id="curName">Chargement…</div>
+            <div className="athlete-sub" id="curSub">SR Obernai</div>
           </div>
           <span className="chevron" id="chevron">▼</span>
           <div id="athleteDropdown">

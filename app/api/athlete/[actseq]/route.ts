@@ -22,12 +22,24 @@ export async function GET(
 ) {
   const { actseq } = await params;
   const forceRefresh = req.nextUrl.searchParams.get('refresh') === '1';
+  // `source=db` : lecture stricte en base, sans jamais scraper athle.fr.
+  // Utilisé lors d'un simple changement d'athlète. Le scraping est réservé à
+  // l'ajout d'un nouvel athlète (recherche) et à la synchronisation (refresh=1).
+  const dbOnly = req.nextUrl.searchParams.get('source') === 'db';
 
   if (!forceRefresh) {
     const cached = await getAthlete(actseq);
     if (cached) {
       console.log(`[CACHE] actseq=${actseq}`);
       return NextResponse.json({ ok: true, data: cached, source: 'cache' });
+    }
+    if (dbOnly) {
+      // Athlète absent de la base : on ne déclenche PAS de scraping ici.
+      console.log(`[DB-MISS] actseq=${actseq} — absent de la base, pas de scraping athle.fr`);
+      return NextResponse.json(
+        { ok: false, notFound: true, source: 'db' },
+        { status: 404 },
+      );
     }
   }
 

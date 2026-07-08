@@ -87,6 +87,20 @@ function toDisciplines(rows: PerfRow[]): Record<string, any> {
   return disciplines;
 }
 
+// Liste le roster (les athlètes suivis) tel qu'il est stocké en base.
+// Aucune donnée n'est codée en dur côté application : la liste vient d'ici.
+export async function listAthletes(): Promise<
+  Array<{ actseq: string; nom: string; categorie: string; club: string }>
+> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from('athletes')
+    .select('actseq, nom, categorie, club')
+    .order('nom', { ascending: true });
+  if (error) throw new Error(`Supabase listAthletes: ${error.message}`);
+  return (data ?? []) as Array<{ actseq: string; nom: string; categorie: string; club: string }>;
+}
+
 export async function getAthlete(actseq: string): Promise<any | null> {
   const sb = getSupabase();
 
