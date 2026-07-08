@@ -1004,8 +1004,12 @@ export default function HomeClient() {
         <div className="scell"><div className="slbl">Départ.</div><div className="pprow" id="pd-dep"></div></div>
         <div className="scell"><div className="slbl">Niveau actuel</div><div className="sval" id="st-niv" style={{fontSize:'16px',marginTop:'4px'}}>—</div><div className="ssub" id="st-niv2">—</div></div>
       </div>
-      <div id="sidebarBackdrop" onClick={() => (window as any).__closeMobileSidebar?.()}></div>
       <div id="layout">
+        {/* Backdrop must live inside #layout: #layout is position:fixed and thus
+            creates a stacking context, so a backdrop placed outside it would paint
+            above the drawer (z-index is only comparable within the same context)
+            and swallow taps on the discipline buttons. */}
+        <div id="sidebarBackdrop" onClick={() => (window as any).__closeMobileSidebar?.()}></div>
         <div id="sidebar"><div className="slabel">Disciplines</div><div id="discList"></div></div>
         <div id="main">
           <div className="empty" id="emptyMain">
