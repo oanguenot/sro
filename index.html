@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SR Obernai — Suivi Athlétisme</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#0f1117; --surface:#181c27; --surface2:#1e2333;
+      --border:rgba(255,255,255,0.07);
+      --accent:#f5a623; --accent2:#4ecdc4;
+      --gold:#f5c842; --silver:#b0b8c8; --bronze:#cd7f32;
+      --green:#3ecf8e; --red:#e84393;
+      --txt:#e8eaf0; --txt2:#8891a8; --txt3:#555e72;
+      --radius:10px; --radius-lg:16px;
+      --sidebar-w:240px; --header-h:64px; --stats-h:112px;
+    }
+    html,body { height:100%; background:var(--bg); color:var(--txt); overflow:hidden; font-family:'Inter',system-ui,sans-serif; }
+
+    /* ── HEADER ── */
+    header {
+      position:fixed; top:0; left:0; right:0; height:var(--header-h);
+      background:var(--surface); border-bottom:1px solid var(--border);
+      display:flex; align-items:center; padding:0 20px; gap:16px; z-index:100;
+    }
+    .logo { font-size:16px; font-weight:700; color:var(--txt); display:flex; align-items:center; gap:8px; white-space:nowrap; }
+    .logo em { color:var(--accent); font-style:normal; }
+
+    /* Athlete selector */
+    .athlete-select-wrap {
+      display:flex; align-items:center; gap:10px;
+      background:var(--surface2); border:1px solid var(--border);
+      border-radius:var(--radius); padding:6px 12px; cursor:pointer;
+      transition:border-color .15s; position:relative;
+    }
+    .athlete-select-wrap:hover { border-color:rgba(245,166,35,.4); }
+    .athlete-avatar {
+      width:32px; height:32px; border-radius:50%;
+      background:linear-gradient(135deg,var(--accent),#e67e22);
+      display:flex; align-items:center; justify-content:center;
+      font-size:13px; font-weight:700; color:#000; flex-shrink:0;
+    }
+    .athlete-info { display:flex; flex-direction:column; }
+    .athlete-name { font-size:14px; font-weight:600; color:var(--txt); }
+    .athlete-sub  { font-size:11px; color:var(--txt2); }
+    .chevron { color:var(--txt3); font-size:12px; margin-left:4px; transition:transform .2s; }
+    .chevron.open { transform:rotate(180deg); }
+
+    /* Dropdown */
+    #athleteDropdown {
+      position:absolute; top:calc(100% + 6px); left:0; right:0;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--radius-lg); overflow:hidden; z-index:200;
+      display:none; min-width:240px;
+    }
+    #athleteDropdown.open { display:block; }
+    .ath-opt {
+      display:flex; align-items:center; gap:10px;
+      padding:10px 14px; cursor:pointer; transition:background .1s;
+      border-bottom:1px solid var(--border);
+    }
+    .ath-opt:last-child { border-bottom:none; }
+    .ath-opt:hover { background:var(--surface2); }
+    .ath-opt.selected { background:rgba(245,166,35,.08); }
+    .ath-opt .av {
+      width:30px; height:30px; border-radius:50%; flex-shrink:0;
+      display:flex; align-items:center; justify-content:center;
+      font-size:12px; font-weight:700; color:#000;
+    }
+    .ath-opt-info .name { font-size:13px; font-weight:600; color:var(--txt); }
+    .ath-opt-info .sub  { font-size:11px; color:var(--txt2); }
+    .ath-loading { padding:12px 14px; font-size:12px; color:var(--txt2); display:flex; align-items:center; gap:8px; }
+    .mini-spinner { width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+
+    .hright { margin-left:auto; display:flex; align-items:center; gap:10px; }
+    #refreshBtn {
+      display:flex; align-items:center; gap:6px;
+      background:var(--accent); color:#000; border:none; border-radius:var(--radius);
+      padding:7px 14px; font-size:13px; font-weight:600; cursor:pointer; transition:opacity .15s;
+    }
+    #refreshBtn:hover { opacity:.85; } #refreshBtn:disabled { opacity:.4; cursor:not-allowed; }
+    .sdot { width:8px; height:8px; border-radius:50%; background:var(--txt3); }
+    .sdot.loading { background:var(--accent); animation:blink 1s infinite; }
+    .sdot.ok { background:var(--green); } .sdot.err { background:var(--red); }
+    @keyframes blink { 0%,100%{opacity:1}50%{opacity:.2} }
+    #stxt { font-size:12px; color:var(--txt2); max-width:260px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    /* ── STATS BAR ── */
+    #statsBar {
+      position:fixed; top:var(--header-h); left:0; right:0; height:var(--stats-h);
+      background:var(--surface); border-bottom:1px solid var(--border);
+      display:flex; align-items:stretch; overflow-x:auto; z-index:99;
+    }
+    .scell { display:flex; flex-direction:column; justify-content:center; padding:0 20px; border-right:1px solid var(--border); min-width:120px; flex-shrink:0; }
+    .scell:last-child { border-right:none; }
+    .slbl { font-size:10px; font-weight:600; color:var(--txt3); text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; }
+    .sval { font-size:26px; font-weight:700; color:var(--txt); line-height:1; }
+    .ssub { font-size:11px; color:var(--txt2); margin-top:3px; }
+    .pprow { display:flex; gap:6px; margin-top:4px; flex-wrap:wrap; }
+    .pp { display:flex; align-items:center; gap:3px; font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; }
+    .pp.g { background:rgba(245,200,66,.1); color:var(--gold); border:1px solid rgba(245,200,66,.2); }
+    .pp.s { background:rgba(176,184,200,.08); color:var(--silver); border:1px solid rgba(176,184,200,.2); }
+    .pp.b { background:rgba(205,127,50,.1); color:var(--bronze); border:1px solid rgba(205,127,50,.2); }
+
+    /* ── LAYOUT ── */
+    #layout { position:fixed; top:calc(var(--header-h) + var(--stats-h)); left:0; right:0; bottom:0; display:flex; }
+
+    /* ── SIDEBAR ── */
+    #sidebar { width:var(--sidebar-w); background:var(--surface); border-right:1px solid var(--border); overflow-y:auto; flex-shrink:0; padding:10px 8px; }
+    .slabel { font-size:10px; font-weight:600; color:var(--txt3); letter-spacing:.07em; text-transform:uppercase; padding:4px 12px 8px; }
+    .dbtn {
+      width:100%; text-align:left; display:flex; align-items:center; justify-content:space-between;
+      padding:9px 12px; border-radius:8px; border:none; background:transparent;
+      color:var(--txt2); font-size:13px; font-weight:500; cursor:pointer; transition:all .12s; font-family:inherit;
+    }
+    .dbtn:hover { background:var(--surface2); color:var(--txt); }
+    .dbtn.active { background:rgba(245,166,35,.1); color:var(--accent); border-left:3px solid var(--accent); padding-left:9px; }
+    .dcnt { font-size:11px; color:var(--txt3); background:var(--surface2); padding:1px 7px; border-radius:999px; }
+    .dbtn.active .dcnt { background:rgba(245,166,35,.15); color:var(--accent); }
+
+    /* ── MAIN ── */
+    #main { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:18px; }
+
+    /* ── CHART CARD ── */
+    .ccard { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:22px; }
+    .cheader { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:18px; }
+    .ctitle { font-size:18px; font-weight:700; color:var(--txt); }
+    .csubtitle { font-size:12px; color:var(--txt2); margin-top:3px; }
+    .cbadges { display:flex; flex-direction:column; align-items:flex-end; gap:5px; }
+    .badge { font-size:11px; font-weight:600; padding:3px 10px; border-radius:999px; }
+    .brp  { background:rgba(62,207,142,.1); color:var(--green); border:1px solid rgba(62,207,142,.2); }
+    .bup  { background:rgba(78,205,196,.1); color:var(--accent2); border:1px solid rgba(78,205,196,.2); }
+    .bdn  { background:rgba(232,67,147,.1); color:var(--red); border:1px solid rgba(232,67,147,.2); }
+
+    /* ── TABLE ── */
+    .rtable { width:100%; border-collapse:collapse; margin-top:18px; font-size:13px; }
+    .rtable th { text-align:left; font-size:10px; font-weight:600; color:var(--txt3); letter-spacing:.06em; text-transform:uppercase; padding:7px 10px; border-bottom:1px solid var(--border); }
+    .rtable td { padding:9px 10px; border-bottom:1px solid rgba(255,255,255,.04); color:var(--txt2); }
+    .rtable tr:last-child td { border-bottom:none; }
+    .rtable td.perf { font-size:15px; font-weight:700; color:var(--txt); }
+    .rtable td.perf.rp { color:var(--green); }
+    .rtable tr.dq-row td { opacity:.35; }
+    .tag { display:inline-block; font-size:10px; font-weight:600; padding:1px 6px; border-radius:4px; margin-left:5px; vertical-align:middle; }
+    .tag.rp  { background:rgba(62,207,142,.1); color:var(--green); }
+    .tag.sal { background:rgba(78,205,196,.1); color:var(--accent2); }
+    .tag.dq  { background:rgba(232,67,147,.1); color:var(--red); }
+
+    /* ── EMPTY / SPINNER ── */
+    .empty { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; color:var(--txt3); text-align:center; gap:12px; }
+    .empty p { font-size:14px; }
+    .spinner { width:32px; height:32px; border:3px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .8s linear infinite; }
+    @keyframes spin { to{transform:rotate(360deg)} }
+
+    #overlay { position:fixed; inset:0; background:rgba(15,17,23,.88); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; z-index:300; }
+    #overlay.hidden { display:none; }
+    #overlay p { color:var(--txt2); font-size:14px; }
+
+    ::-webkit-scrollbar { width:5px; height:5px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--border); border-radius:999px; }
+  </style>
+</head>
+<body>
+
+<div id="overlay">
+  <div class="spinner"></div>
+  <p id="omsg">Chargement des données…</p>
+</div>
+
+<header>
+  <div class="logo">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="2"/><path d="M10 22v-5h-2l2-9 5 3-2 6h-2"/><path d="M14 22v-5l3-3-1-7"/></svg>
+    <em>SR Obernai</em> — Athlétisme
+  </div>
+
+  <!-- Athlete dropdown -->
+  <div class="athlete-select-wrap" id="athleteWrap" onclick="toggleDropdown()">
+    <div class="athlete-avatar" id="curAvatar">EA</div>
+    <div class="athlete-info">
+      <div class="athlete-name" id="curName">Emma Anguenot</div>
+      <div class="athlete-sub"  id="curSub">Cadette · SR Obernai</div>
+    </div>
+    <span class="chevron" id="chevron">▼</span>
+    <div id="athleteDropdown">
+      <div class="ath-loading"><div class="mini-spinner"></div>Chargement des athlètes…</div>
+    </div>
+  </div>
+
+  <div class="hright">
+    <div class="sdot" id="sdot"></div>
+    <span id="stxt">—</span>
+    <button id="refreshBtn" onclick="loadAthlete(currentActseq, true)">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      Actualiser
+    </button>
+  </div>
+</header>
+
+<div id="statsBar">
+  <div class="scell"><div class="slbl">Disciplines</div><div class="sval" id="st-d">—</div><div class="ssub">pratiquées</div></div>
+  <div class="scell"><div class="slbl">Résultats</div><div class="sval" id="st-r">—</div><div class="ssub">compétitions</div></div>
+  <div class="scell"><div class="slbl">Saisons</div><div class="sval" id="st-s">—</div><div class="ssub" id="st-sr">—</div></div>
+  <div class="scell"><div class="slbl">Podiums nationaux</div><div class="pprow" id="pd-n"></div></div>
+  <div class="scell"><div class="slbl">Podiums régionaux</div><div class="pprow" id="pd-reg"></div></div>
+  <div class="scell"><div class="slbl">Podiums départ.</div><div class="pprow" id="pd-dep"></div></div>
+  <div class="scell"><div class="slbl">Niveau actuel</div><div class="sval" id="st-niv" style="font-size:16px;margin-top:4px">—</div><div class="ssub" id="st-niv2">—</div></div>
+</div>
+
+<div id="layout">
+  <div id="sidebar"><div class="slabel">Disciplines</div><div id="discList"></div></div>
+  <div id="main">
+    <div class="empty" id="emptyMain">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 3v18h18"/><path d="M7 16l4-4 4 4 4-4"/></svg>
+      <p>Sélectionne une discipline à gauche</p>
+    </div>
+    <div id="chartArea" style="display:none;"></div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// ATHLETES — actseq trouvés sur athle.fr
+// ═══════════════════════════════════════════════
+const ATHLETES = [
+  { nom:"Emma Anguenot",   actseq:"2747642", initiales:"EA", color:"#f5a623", cat:"Cadette",  sexe:"F" },
+  { nom:"Chloé Greulich",  actseq:"2234044", initiales:"CG", color:"#4ecdc4", cat:"Cadette",  sexe:"F" },
+  { nom:"Jessica Greulich",actseq:null,      initiales:"JG", color:"#e84393", cat:"Cadette",  sexe:"F", licence:"2006273" },
+  { nom:"Zoé Martinache",  actseq:"2438136", initiales:"ZM", color:"#a78bfa", cat:"Cadette",  sexe:"F" },
+  { nom:"Lise Meyer",      actseq:"3127014", initiales:"LM", color:"#34d399", cat:"—",        sexe:"F" },
+  { nom:"Olivier Anguenot",actseq:null,      initiales:"OA", color:"#60a5fa", cat:"—",        sexe:"M", licence:null },
+];
+
+// Cache des données par actseq
+const cache = {};
+
+let currentActseq = "2747642";
+let currentDisc   = null;
+let chartInst     = null;
+let dropdownOpen  = false;
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', async () => {
+  await resolveActseqs();
+  buildDropdown();
+  await loadAthlete("2747642", false);
+  document.getElementById('overlay').classList.add('hidden');
+});
+
+// Ferme le dropdown si clic hors
+document.addEventListener('click', e => {
+  if(!document.getElementById('athleteWrap').contains(e.target)) closeDropdown();
+});
+
+// ═══════════════════════════════════════════════
+// RÉSOLUTION DES ACTSEQS MANQUANTS VIA API
+// ═══════════════════════════════════════════════
+async function resolveActseqs() {
+  const missing = ATHLETES.filter(a => !a.actseq);
+  if(!missing.length) return;
+  document.getElementById('omsg').textContent = 'Recherche des profils athle.fr…';
+  for(const ath of missing) {
+    try {
+      const nom = ath.nom.split(' ').pop(); // Cherche par nom de famille
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          model:'claude-sonnet-4-6', max_tokens:1000,
+          tools:[{type:'web_search_20250305', name:'web_search'}],
+          system:`Trouve l'actseq (identifiant numérique dans l'URL) du profil athle.fr de l'athlète ${ath.nom} du club "Sr Obernai". 
+L'URL est au format https://www.athle.fr/athletes/<actseq>/resultats
+${ath.licence ? `Son numéro de licence est ${ath.licence}.` : ''}
+Retourne UNIQUEMENT le nombre, rien d'autre. Exemple: 2747642`,
+          messages:[{role:'user', content:`Quel est l'actseq athle.fr de ${ath.nom} (SR Obernai) ?`}]
+        })
+      });
+      const json = await resp.json();
+      const text = (json.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+      const match = text.match(/\b(\d{5,9})\b/);
+      if(match) ath.actseq = match[1];
+    } catch(e) { /* silencieux */ }
+  }
+}
+
+// ═══════════════════════════════════════════════
+// DROPDOWN
+// ═══════════════════════════════════════════════
+function buildDropdown() {
+  const dd = document.getElementById('athleteDropdown');
+  dd.innerHTML = '';
+  ATHLETES.forEach(ath => {
+    const div = document.createElement('div');
+    div.className = 'ath-opt' + (ath.actseq === currentActseq ? ' selected' : '');
+    div.innerHTML = `
+      <div class="av" style="background:${ath.color}">${ath.initiales}</div>
+      <div class="ath-opt-info">
+        <div class="name">${ath.nom}</div>
+        <div class="sub">${ath.cat} · SR Obernai${!ath.actseq?' · <span style="color:var(--red)">profil introuvable</span>':''}</div>
+      </div>`;
+    if(ath.actseq) div.onclick = (e) => { e.stopPropagation(); selectAthlete(ath); };
+    else div.style.opacity = '.45';
+    dd.appendChild(div);
+  });
+}
+
+function toggleDropdown() {
+  dropdownOpen = !dropdownOpen;
+  document.getElementById('athleteDropdown').classList.toggle('open', dropdownOpen);
+  document.getElementById('chevron').classList.toggle('open', dropdownOpen);
+}
+function closeDropdown() {
+  dropdownOpen = false;
+  document.getElementById('athleteDropdown').classList.remove('open');
+  document.getElementById('chevron').classList.remove('open');
+}
+
+async function selectAthlete(ath) {
+  closeDropdown();
+  if(ath.actseq === currentActseq) return;
+  // Update header
+  document.getElementById('curAvatar').textContent = ath.initiales;
+  document.getElementById('curAvatar').style.background = ath.color;
+  document.getElementById('curName').textContent = ath.nom;
+  document.getElementById('curSub').textContent = ath.cat + ' · SR Obernai';
+  // Mark selected
+  document.querySelectorAll('.ath-opt').forEach((el,i) => el.classList.toggle('selected', ATHLETES[i].actseq === ath.actseq));
+  await loadAthlete(ath.actseq, false);
+}
+
+// ═══════════════════════════════════════════════
+// STATUS
+// ═══════════════════════════════════════════════
+function setStatus(type, msg) {
+  document.getElementById('sdot').className = 'sdot ' + type;
+  document.getElementById('stxt').textContent = msg;
+}
+
+// ═══════════════════════════════════════════════
+// CHARGER UN ATHLÈTE
+// ═══════════════════════════════════════════════
+async function loadAthlete(actseq, forceRefresh) {
+  currentActseq = actseq;
+  currentDisc = null;
+
+  // Données en cache ?
+  if(cache[actseq] && !forceRefresh) {
+    renderAll(cache[actseq]);
+    setStatus('ok', 'Données en cache · ' + cache[actseq]._loadedAt);
+    return;
+  }
+
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  document.getElementById('overlay').classList.remove('hidden');
+  document.getElementById('omsg').textContent = 'Chargement depuis athle.fr…';
+  setStatus('loading', 'Connexion à athle.fr…');
+
+  // Vide l'affichage
+  document.getElementById('discList').innerHTML = '';
+  document.getElementById('chartArea').style.display = 'none';
+  document.getElementById('emptyMain').style.display = 'flex';
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model:'claude-sonnet-4-6', max_tokens:1000,
+        tools:[{type:'web_search_20250305', name:'web_search'}],
+        system:`Visite https://www.athle.fr/athletes/${actseq}/resultats et extrais TOUS les résultats individuels de l'athlète (chaque compétition séparément, pas seulement les meilleures par saison). Extrais aussi les podiums et le niveau.
+Retourne UNIQUEMENT du JSON valide sans texte ni backticks :
+{
+  "nom":"Prénom Nom",
+  "club":"Sr Obernai",
+  "categorie":"CA/F",
+  "niveau":{"annee":2026,"niveau":"IR3","pts":19},
+  "podiums":{
+    "national":{"or":0,"argent":0,"bronze":0},
+    "regional":{"or":0,"argent":0,"bronze":0},
+    "dept":{"or":0,"argent":0,"bronze":0}
+  },
+  "disciplines":{
+    "NomEpreuve":{
+      "lower":true,
+      "resultats":[{"date":"DD/MM/YYYY","perf":26.47,"perfStr":"26\\"47","vent":"+0.2","lieu":"Ville","place":2,"comp":"Nom compétition","salle":false,"dq":false}]
+    }
+  }
+}
+Pour les courses : "perf" = secondes décimales (ex: 26.47). Pour hauteur/longueur = mètres (ex: 1.46). Pour triathlon = points. "dq":true si disqualifié.`,
+        messages:[{role:'user', content:`Extrais tous les résultats de https://www.athle.fr/athletes/${actseq}/resultats`}]
+      })
+    });
+
+    const json = await resp.json();
+    let raw = (json.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
+    raw = raw.replace(/```json|```/g,'').trim();
+    const si = raw.indexOf('{'), ei = raw.lastIndexOf('}');
+    if(si === -1 || ei === -1) throw new Error('Pas de JSON');
+    const parsed = JSON.parse(raw.substring(si, ei+1));
+    if(!parsed.disciplines) throw new Error('Pas de disciplines');
+
+    parsed._loadedAt = new Date().toLocaleTimeString('fr-FR');
+    parsed._actseq   = actseq;
+    cache[actseq]    = parsed;
+
+    // Mettre à jour le header avec le vrai nom
+    const ath = ATHLETES.find(a => a.actseq === actseq);
+    if(ath && parsed.nom) {
+      document.getElementById('curName').textContent = parsed.nom;
+      document.getElementById('curSub').textContent = (parsed.categorie||ath.cat) + ' · ' + (parsed.club||'SR Obernai');
+    }
+
+    renderAll(parsed);
+    setStatus('ok', 'athle.fr · ' + parsed._loadedAt);
+  } catch(e) {
+    // Fallback sur les données Emma si c'est son actseq
+    if(actseq === "2747642") {
+      const fallback = getEmmaFallback();
+      cache[actseq] = fallback;
+      renderAll(fallback);
+      setStatus('err', 'Données locales Emma · ' + e.message);
+    } else {
+      document.getElementById('emptyMain').style.display = 'flex';
+      document.getElementById('emptyMain').querySelector('p').textContent = 'Impossible de charger les données : ' + e.message;
+      setStatus('err', e.message);
+    }
+  }
+
+  btn.disabled = false;
+  document.getElementById('overlay').classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════════
+// FALLBACK EMMA (données complètes connues)
+// ═══════════════════════════════════════════════
+function getEmmaFallback() {
+  return {
+    nom:"Emma Anguenot", club:"Sr Obernai", categorie:"CA/F",
+    niveau:{annee:2026, niveau:"IR3", pts:19},
+    podiums:{
+      national:{or:0,argent:0,bronze:0},
+      regional:{or:0,argent:0,bronze:0},
+      dept:{or:0,argent:4,bronze:0}
+    },
+    _loadedAt:"(cache local)",
+    disciplines:{
+      "200m":{ lower:true, resultats:[
+        {date:"10/05/2026",perf:26.47,perfStr:'26"47',vent:'+0.2',lieu:"Strasbourg",place:2,comp:"Interclubs / Chpt Bas-Rhin"},
+        {date:"22/05/2026",perf:26.86,perfStr:'26"86',vent:'+1.2',lieu:"Obernai",place:3,comp:"Meeting piste Obernai"},
+        {date:"31/05/2026",perf:26.40,perfStr:'26"40',vent:'+1.8',lieu:"Colmar",place:3,comp:"Meeting Colmar"},
+        {date:"14/06/2026",perf:null,perfStr:'DQ',vent:'+1.3',lieu:"Brumath",dq:true,comp:"Meeting Brumath"},
+        {date:"21/06/2026",perf:26.47,perfStr:'26"47',vent:'+0.1',lieu:"Reims",place:6,comp:"Meeting Reims"}
+      ]},
+      "100m":{ lower:true, note:"1 seule performance enregistrée sur athle.fr", resultats:[
+        {date:"22/05/2026",perf:12.98,perfStr:'12"98',vent:'+0.2',lieu:"Obernai",place:2,comp:"Meeting piste Obernai"}
+      ]},
+      "400m":{ lower:true, resultats:[
+        {date:"26/04/2026",perf:66.24,perfStr:'66"24',lieu:"Strasbourg",place:4,comp:"Meeting Strasbourg"},
+        {date:"03/05/2026",perf:65.68,perfStr:'65"68',lieu:"Strasbourg",place:3,comp:"Meeting Strasbourg"}
+      ]},
+      "60m":{ lower:true, resultats:[
+        {date:"03/01/2026",perf:8.40,perfStr:'8"40',salle:true,lieu:"Obernai",place:3,comp:"Meeting salle Obernai"},
+        {date:"20/12/2025",perf:8.29,perfStr:'8"29',salle:true,lieu:"Colmar",comp:"Meeting salle Colmar"}
+      ]},
+      "60m Haies (76)":{ lower:true, resultats:[
+        {date:"03/01/2026",perf:9.91,perfStr:'9"91',salle:true,lieu:"Obernai",place:2,comp:"Meeting salle Obernai"},
+        {date:"01/02/2026",perf:10.09,perfStr:'10"09',salle:true,lieu:"Metz",place:5,comp:"Chpt Grand Est cadets salle"}
+      ]},
+      "50m":{ lower:true, resultats:[
+        {date:"09/04/2022",perf:8.22,perfStr:'8"22',comp:"Meeting Hautepierre"},
+        {date:"21/05/2022",perf:7.85,perfStr:'7"85',comp:"Meeting Brumath"},
+        {date:"04/06/2022",perf:7.81,perfStr:'7"81',comp:"Meeting Lingolsheim"},
+        {date:"25/06/2022",perf:7.77,perfStr:'7"77',vent:'+0.1',lieu:"Colmar",comp:"Chpt Alsace BE-MI"},
+        {date:"25/01/2025",perf:7.28,perfStr:'7"28',salle:true,lieu:"Colmar",comp:"Meeting salle"}
+      ]},
+      "80m":{ lower:true, resultats:[
+        {date:"09/06/2024",perf:11.16,perfStr:'11"16',vent:'+0.5',lieu:"Obernai",comp:"Chpt Grand Est U16"},
+        {date:"17/05/2025",perf:10.75,perfStr:'10"75',vent:'+1.5',lieu:"Brumath",comp:"Meeting Brumath"}
+      ]},
+      "120m Haies":{ lower:true, resultats:[
+        {date:"21/06/2025",perf:15.56,perfStr:'15"56',vent:'+1.0',lieu:"Bischwiller",comp:"Chpt Alsace cadets"}
+      ]},
+      "80m Haies (76)":{ lower:true, resultats:[
+        {date:"23/06/2024",perf:13.65,perfStr:'13"65',vent:'+1.6',lieu:"Illzach",comp:"Chpt Alsace U16"},
+        {date:"21/06/2025",perf:12.84,perfStr:'12"84',vent:'+0.9',lieu:"Bischwiller",comp:"Chpt Alsace cadets"}
+      ]},
+      "50m Haies (76)":{ lower:true, resultats:[
+        {date:"04/02/2024",perf:8.80,perfStr:'8"80',salle:true,lieu:"Reims",comp:"Meeting salle"},
+        {date:"25/01/2025",perf:8.39,perfStr:'8"39',salle:true,lieu:"Colmar",comp:"Meeting salle"}
+      ]},
+      "50m Haies (65)":{ lower:true, resultats:[
+        {date:"20/05/2023",perf:8.79,perfStr:'8"79',vent:'+1.0',lieu:"Strasbourg",comp:"Chpt Bas-Rhin BEF"},
+        {date:"17/06/2023",perf:8.67,perfStr:'8"67',vent:'+1.4',lieu:"Obernai",comp:"Chpt Alsace"}
+      ]},
+      "1000m":{ lower:true, resultats:[
+        {date:"01/07/2022",perf:226.04,perfStr:"3'46\"04",lieu:"Strasbourg",comp:"Meeting nocturne ASS"}
+      ]},
+      "Hauteur":{ lower:false, resultats:[
+        {date:"09/04/2022",perf:1.15,perfStr:'1m15',comp:"Meeting Hautepierre"},
+        {date:"28/05/2022",perf:1.20,perfStr:'1m20',lieu:"Lingolsheim",comp:"Chpt Bas-Rhin BE-MI"},
+        {date:"04/06/2022",perf:1.23,perfStr:'1m23',lieu:"Lingolsheim",comp:"Meeting Lingolsheim"},
+        {date:"25/06/2022",perf:1.23,perfStr:'1m23',lieu:"Colmar",comp:"Chpt Alsace BE-MI"},
+        {date:"20/05/2023",perf:1.35,perfStr:'1m35',lieu:"Strasbourg",comp:"Chpt Bas-Rhin BEF"},
+        {date:"20/01/2024",perf:1.30,perfStr:'1m30',salle:true,lieu:"Strasbourg",comp:"Meeting salle"},
+        {date:"01/05/2024",perf:1.40,perfStr:'1m40',lieu:"Obernai",comp:"Meeting Obernai"},
+        {date:"23/06/2024",perf:1.45,perfStr:'1m45',lieu:"Illzach",comp:"Chpt Alsace U16"},
+        {date:"07/12/2024",perf:1.41,perfStr:'1m41',salle:true,lieu:"Strasbourg",comp:"Meeting salle"},
+        {date:"17/05/2025",perf:1.43,perfStr:'1m43',lieu:"Brumath",comp:"Chpt Bas-Rhin cadets"},
+        {date:"03/05/2025",perf:1.46,perfStr:'1m46',lieu:"Obernai",comp:"Meeting Obernai"},
+        {date:"03/05/2026",perf:1.30,perfStr:'1m30',lieu:"Strasbourg",comp:"Meeting Strasbourg"},
+        {date:"20/12/2025",perf:1.35,perfStr:'1m35',salle:true,lieu:"Colmar",comp:"Meeting salle"}
+      ]},
+      "Longueur":{ lower:false, resultats:[
+        {date:"15/10/2022",perf:3.96,perfStr:'3m96',lieu:"Lingolsheim",comp:"Meeting automne"},
+        {date:"01/05/2024",perf:4.22,perfStr:'4m22',lieu:"Obernai",comp:"Meeting Obernai"},
+        {date:"19/05/2024",perf:4.12,perfStr:'4m12',vent:'+0.8',lieu:"Strasbourg",comp:"Interclubs"},
+        {date:"17/05/2025",perf:4.59,perfStr:'4m59',vent:'-0.7',lieu:"Brumath",comp:"Meeting Brumath"}
+      ]},
+      "Relais 4x100m":{ lower:true, resultats:[
+        {date:"03/05/2026",perf:50.81,perfStr:'50"81',lieu:"Strasbourg",place:2,comp:"Meeting Strasbourg"},
+        {date:"10/05/2026",perf:48.95,perfStr:'48"95',lieu:"Strasbourg",place:1,comp:"Meeting Strasbourg"},
+        {date:"31/05/2026",perf:49.82,perfStr:'49"82',lieu:"Colmar",place:1,comp:"Meeting Colmar"},
+        {date:"14/06/2026",perf:50.40,perfStr:'50"40',lieu:"Brumath",place:2,comp:"Meeting Brumath"}
+      ]},
+      "Relais 4x200m":{ lower:true, resultats:[
+        {date:"01/02/2026",perf:106.46,perfStr:"1'46\"46",lieu:"Metz",place:1,comp:"Chpt Grand Est cadets salle"},
+        {date:"21/02/2026",perf:105.99,perfStr:"1'45\"99",lieu:"Val-de-Reuil",place:3,comp:"Chpt France cadets salle"}
+      ]},
+      "Triathlon":{ lower:false, unit:'pts', resultats:[
+        {date:"28/05/2022",perf:73,perfStr:'73 pts',lieu:"Lingolsheim",comp:"Meeting"},
+        {date:"30/04/2023",perf:102,perfStr:'102 pts',lieu:"Obernai",comp:"Meeting"},
+        {date:"23/06/2024",perf:86,perfStr:'86 pts',lieu:"Illzach",comp:"Chpt Alsace U16"},
+        {date:"21/06/2025",perf:113,perfStr:'113 pts',lieu:"Bischwiller",comp:"Chpt Alsace cadets"}
+      ]},
+      "Triathlon (salle)":{ lower:false, unit:'pts', resultats:[
+        {date:"25/01/2025",perf:104,perfStr:'104 pts',salle:true,lieu:"Colmar",comp:"Meeting salle"}
+      ]}
+    }
+  };
+}
+
+// ═══════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════
+function renderAll(data) {
+  renderStats(data);
+  renderSidebar(data);
+  const first = Object.keys(data.disciplines||{})[0];
+  if(currentDisc && data.disciplines[currentDisc]) renderChart(data, currentDisc);
+  else if(first) selectDisc(data, first);
+}
+
+function renderStats(data) {
+  const D = data.disciplines || {};
+  const keys = Object.keys(D);
+  const total = keys.reduce((a,k)=>a+(D[k].resultats||[]).filter(r=>!r.dq).length, 0);
+  const years = new Set();
+  keys.forEach(k=>(D[k].resultats||[]).forEach(r=>{ const y=r.date?.split('/')[2]; if(y) years.add(+y); }));
+  const ya = [...years].sort();
+  document.getElementById('st-d').textContent = keys.length;
+  document.getElementById('st-r').textContent = total;
+  document.getElementById('st-s').textContent = years.size;
+  document.getElementById('st-sr').textContent = ya.length ? ya[0]+'–'+ya[ya.length-1] : '—';
+
+  const niv = data.niveau;
+  document.getElementById('st-niv').textContent = niv?.niveau || '—';
+  document.getElementById('st-niv2').textContent = niv ? niv.pts + ' pts · ' + niv.annee : '—';
+
+  const pn  = data.podiums?.national  || {or:0,argent:0,bronze:0};
+  const pr  = data.podiums?.regional  || {or:0,argent:0,bronze:0};
+  const pd  = data.podiums?.dept      || {or:0,argent:0,bronze:0};
+  const ppHTML = p => `<span class="pp g">🥇 ${p.or}</span><span class="pp s">🥈 ${p.argent}</span><span class="pp b">🥉 ${p.bronze}</span>`;
+  document.getElementById('pd-n').innerHTML   = ppHTML(pn);
+  document.getElementById('pd-reg').innerHTML = ppHTML(pr);
+  document.getElementById('pd-dep').innerHTML = ppHTML(pd);
+}
+
+function renderSidebar(data) {
+  const list = document.getElementById('discList');
+  list.innerHTML = '';
+  Object.entries(data.disciplines||{}).forEach(([disc, info]) => {
+    const n = (info.resultats||[]).length;
+    const btn = document.createElement('button');
+    btn.className = 'dbtn' + (disc === currentDisc ? ' active' : '');
+    btn.dataset.disc = disc;
+    btn.innerHTML = `<span>${disc}</span><span class="dcnt">${n}</span>`;
+    btn.onclick = () => selectDisc(data, disc);
+    list.appendChild(btn);
+  });
+}
+
+function selectDisc(data, disc) {
+  currentDisc = disc;
+  document.querySelectorAll('.dbtn').forEach(b => {
+    const active = b.dataset.disc === disc;
+    b.classList.toggle('active', active);
+    if(active) b.scrollIntoView({block:'nearest'});
+  });
+  renderChart(data, disc);
+}
+
+// Keyboard nav
+document.addEventListener('keydown', e => {
+  if(e.target.tagName === 'INPUT' || dropdownOpen) return;
+  if(e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+  e.preventDefault();
+  const data = cache[currentActseq];
+  if(!data) return;
+  const keys = Object.keys(data.disciplines||{});
+  const idx  = keys.indexOf(currentDisc);
+  if(idx === -1) return;
+  const next = e.key === 'ArrowDown' ? keys[Math.min(idx+1,keys.length-1)] : keys[Math.max(idx-1,0)];
+  selectDisc(data, next);
+});
+
+// ═══════════════════════════════════════════════
+// DATE HELPERS
+// ═══════════════════════════════════════════════
+function pdDate(str) { if(!str) return new Date(0); const p=str.split('/'); return new Date(+p[2],+p[1]-1,+p[0]); }
+function fmtLbl(r) {
+  if(!r.date) return '?';
+  const [d,m,y] = r.date.split('/');
+  const mn=['jan','fév','mar','avr','mai','jun','jul','aoû','sep','oct','nov','déc'];
+  return d+' '+mn[+m-1]+' '+y+(r.salle?' 🏟':'');
+}
+
+// ═══════════════════════════════════════════════
+// CHART
+// ═══════════════════════════════════════════════
+function renderChart(data, disc) {
+  const info = (data.disciplines||{})[disc];
+  if(!info) return;
+
+  document.getElementById('emptyMain').style.display = 'none';
+  const area = document.getElementById('chartArea');
+  area.style.display = 'flex'; area.style.flexDirection = 'column'; area.style.gap = '18px';
+  area.innerHTML = '';
+
+  const allSorted = [...(info.resultats||[])].sort((a,b)=>pdDate(a.date)-pdDate(b.date));
+  const valid = allSorted.filter(r=>!r.dq && r.perf !== null);
+  if(!allSorted.length) { area.innerHTML='<div class="empty"><p>Aucun résultat.</p></div>'; return; }
+
+  const lower  = info.lower !== false;
+  const values = valid.map(r=>r.perf);
+  const best   = values.length ? (lower ? Math.min(...values) : Math.max(...values)) : null;
+  const first  = values[0], last = values[values.length-1];
+  const diff   = (first !== undefined && last !== undefined) ? last - first : 0;
+  const improved = lower ? diff<0 : diff>0;
+  const bestRow  = valid.find(r=>r.perf===best);
+  const dqCount  = allSorted.filter(r=>r.dq).length;
+
+  function fmtD(v) {
+    const a=Math.abs(v);
+    if(info.unit==='pts') return a.toFixed(0)+' pts';
+    if(['Hauteur','Longueur','saut','Disque','Javelot','Poids'].some(x=>disc.includes(x))) return a.toFixed(2)+'m';
+    return a.toFixed(2)+'"';
+  }
+  let progBadge = '';
+  if(valid.length>=2) progBadge = `<span class="badge ${improved?'bup':'bdn'}">${improved?'↑ +':'↓ '}${fmtD(diff)} depuis le début</span>`;
+
+  const subtitle = `${valid.length} résultat(s) valide(s)${dqCount?' · '+dqCount+' DQ':''}${info.note?' · ℹ '+info.note:''} · ${lower?'plus bas = mieux':'plus haut = mieux'}`;
+
+  // Couleur de l'athlète courant
+  const ath = ATHLETES.find(a => a.actseq === currentActseq);
+  const athColor = ath?.color || '#f5a623';
+
+  const card = document.createElement('div');
+  card.className = 'ccard';
+  card.innerHTML = `
+    <div class="cheader">
+      <div><div class="ctitle">${disc}</div><div class="csubtitle">${subtitle}</div></div>
+      <div class="cbadges">
+        ${best!==null?`<span class="badge brp">RP : ${bestRow?.perfStr}</span>`:''}
+        ${progBadge}
+      </div>
+    </div>
+    <div id="cwrap" style="position:relative;width:100%;"></div>
+    <table class="rtable">
+      <thead><tr><th>Date</th><th>Performance</th><th>Lieu</th><th>Compétition</th><th>Infos</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>`;
+  area.appendChild(card);
+
+  const cwrap = card.querySelector('#cwrap');
+
+  // Single result → stat card
+  if(valid.length === 1) {
+    const r = valid[0];
+    cwrap.innerHTML = `
+      <div style="display:flex;align-items:center;gap:24px;padding:20px 0 8px;">
+        <div style="text-align:center;background:${athColor}14;border:1px solid ${athColor}33;border-radius:12px;padding:20px 32px;">
+          <div style="font-size:11px;font-weight:600;color:var(--txt3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">Unique performance</div>
+          <div style="font-size:40px;font-weight:700;color:${athColor};line-height:1;">${r.perfStr}</div>
+          ${r.vent?`<div style="font-size:12px;color:var(--txt3);margin-top:4px;">vent ${r.vent}</div>`:''}
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div style="font-size:13px;color:var(--txt2);">📅 ${r.date||'—'}</div>
+          <div style="font-size:13px;color:var(--txt2);">📍 ${r.lieu||'—'}</div>
+          <div style="font-size:13px;color:var(--txt2);">🏟 ${r.comp||'—'}</div>
+          ${r.place?`<div style="font-size:13px;color:var(--txt2);">${r.place<=3?['🥇','🥈','🥉'][r.place-1]:'🎽'} ${r.place}e place</div>`:''}
+        </div>
+      </div>`;
+    if(chartInst) { chartInst.destroy(); chartInst=null; }
+  } else {
+    const chartH = Math.max(260, Math.min(400, valid.length * 40 + 100));
+    cwrap.style.height = chartH + 'px';
+    cwrap.innerHTML = `<canvas id="theChart" role="img" aria-label="Progression ${disc}"></canvas>`;
+    if(chartInst) { chartInst.destroy(); chartInst=null; }
+
+    const labels   = valid.map(r=>fmtLbl(r));
+    const ptColors = valid.map(r=>r.perf===best?'#3ecf8e':athColor);
+    const ptRadii  = valid.map(r=>r.perf===best?9:5);
+
+    function yFmt(v) {
+      if(info.unit==='pts') return v+' pts';
+      if(['Hauteur','Longueur','saut','Disque','Javelot','Poids'].some(x=>disc.includes(x))) return v.toFixed(2)+'m';
+      if(disc.includes('1000m')||disc.includes('Relais')) { const mm=Math.floor(v/60); return mm>0?mm+"'"+((v%60).toFixed(2))+'"':v.toFixed(2)+'"'; }
+      return v.toFixed(2)+'"';
+    }
+
+    chartInst = new Chart(card.querySelector('#theChart'), {
+      type:'line',
+      data:{ labels, datasets:[{
+        label:disc, data:values,
+        borderColor:athColor,
+        backgroundColor:athColor+'12',
+        pointBackgroundColor:ptColors,
+        pointBorderColor:'#0f1117', pointBorderWidth:2,
+        pointRadius:ptRadii, pointHoverRadius:10,
+        fill:true, tension:0.3, borderWidth:2.5
+      }]},
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          tooltip:{
+            backgroundColor:'#1e2333', borderColor:'rgba(255,255,255,0.08)', borderWidth:1,
+            titleColor:'#e8eaf0', bodyColor:'#8891a8',
+            callbacks:{
+              title:items=>valid[items[0].dataIndex].date||'',
+              label:item=>{ const r=valid[item.dataIndex]; let s='  '+r.perfStr; if(r.comp) s+='  — '+r.comp; if(r.vent) s+='  (vent '+r.vent+')'; if(r.place) s+='  · '+r.place+'e'; if(r.salle) s+='  [salle]'; return s; }
+            }
+          }
+        },
+        scales:{
+          x:{ ticks:{color:'#555e72',font:{size:11},autoSkip:false,maxRotation:45}, grid:{color:'rgba(255,255,255,0.04)'}, border:{color:'rgba(255,255,255,0.06)'} },
+          y:{ reverse:lower, ticks:{color:'#555e72',font:{size:12},callback:v=>yFmt(v)}, grid:{color:'rgba(255,255,255,0.04)'}, border:{color:'rgba(255,255,255,0.06)'} }
+        }
+      }
+    });
+  }
+
+  // Table
+  const tbody = card.querySelector('#tbody');
+  const nonDq = [...allSorted].filter(r=>!r.dq).reverse();
+  const dqs   = [...allSorted].filter(r=>r.dq).reverse();
+  [...nonDq,...dqs].forEach(r => {
+    const isRp = r.perf===best && !r.dq;
+    const tr = document.createElement('tr');
+    if(r.dq) tr.className='dq-row';
+    tr.innerHTML=`
+      <td style="color:var(--txt3);white-space:nowrap">${r.date||'—'}</td>
+      <td class="perf ${isRp?'rp':''}">
+        ${r.perfStr}
+        ${isRp?'<span class="tag rp">RP</span>':''}
+        ${r.salle?'<span class="tag sal">salle</span>':''}
+        ${r.dq?'<span class="tag dq">DQ</span>':''}
+        ${r.place&&!r.dq?`<span style="font-size:11px;color:var(--txt3);margin-left:6px">${r.place<=3?['🥇','🥈','🥉'][r.place-1]:''}${r.place}e</span>`:''}
+      </td>
+      <td style="font-size:12px;color:var(--txt3)">${r.lieu||'—'}</td>
+      <td style="font-size:12px">${r.comp||'—'}</td>
+      <td style="color:var(--txt3);font-size:12px">${r.vent?'vent '+r.vent:'—'}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+</script>
+</body>
+</html>
